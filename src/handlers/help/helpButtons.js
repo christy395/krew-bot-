@@ -4,7 +4,6 @@ import { logger } from '../../utils/logger.js';
 
 const BACK_BUTTON_ID = "help-back-to-main";
 const PAGINATION_PREFIX = "help-page";
-const BUG_REPORT_BUTTON_ID = "help-bug-report";
 
 export const helpBackButton = {
     name: BACK_BUTTON_ID,
