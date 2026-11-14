@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from "../../utils/embeds.js";
+import { logger } from '../../utils/logger.js';
 import {
     createSelectMenu,
 } from "../../utils/components.js";
@@ -18,7 +19,6 @@ const __dirname = path.dirname(__filename);
 
 const CATEGORY_SELECT_ID = "help-category-select";
 const ALL_COMMANDS_ID = "help-all-commands";
-const BUG_REPORT_BUTTON_ID = "help-bug-report";
 const HELP_MENU_TIMEOUT_MS = 5 * 60 * 1000;
 
 const CATEGORY_ICONS = {
@@ -86,7 +86,8 @@ export async function createInitialHelpMenu(client) {
                 name: '🚀 Getting Started',
                 value: [
                     '**1. Launch setup** — Run `/configwizard` to configure prefix, mod role, and logs.',
-                    '**2. Enable systems** — Use `/commands dashboard` to turn categories on or off.',                    '**3. Browse commands** — Use the menu below to view categories and commands.',
+                    '**2. Enable systems** — Use `/commands dashboard` to turn categories on or off.',
+                    '**3. Browse commands** — Use the menu below to view categories and commands.',
                 ].join('\n'),
                 inline: false,
             },
@@ -107,15 +108,10 @@ export async function createInitialHelpMenu(client) {
         ],
     });
 
-    embed.setFooter({ 
-        text: "Made with ❤️" 
+    embed.setFooter({
+        text: "Made with ❤️"
     });
     embed.setTimestamp();
-
-    const bugReportButton = new ButtonBuilder()
-        .setCustomId(BUG_REPORT_BUTTON_ID)
-        .setLabel("Report Bug")
-        .setStyle(ButtonStyle.Danger);
 
     const supportButton = new ButtonBuilder()
         .setLabel("Support Server")
@@ -128,10 +124,7 @@ export async function createInitialHelpMenu(client) {
         options,
     );
 
-    const buttonRow = new ActionRowBuilder().addComponents([
-        bugReportButton,
-        supportButton,
-    ]);
+    const buttonRow = new ActionRowBuilder().addComponents(supportButton);
 
     return {
         embeds: [embed],
@@ -146,10 +139,8 @@ export default {
         .setDescription("Displays the help menu with all available commands"),
 
     async execute(interaction, guildConfig, client) {
-        
-        const { MessageFlags } = await import('discord.js');
         await InteractionHelper.safeDefer(interaction);
-        
+
         const { embeds, components } = await createInitialHelpMenu(client);
 
         await InteractionHelper.safeEditReply(interaction, {
