@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from "../../utils/embeds.js";
+import { logger } from '../../utils/logger.js';
 import {
     createSelectMenu,
 } from "../../utils/components.js";
@@ -87,7 +88,7 @@ export async function createInitialHelpMenu(client) {
                     '**1. Launch setup** — Run `/configwizard` to configure prefix, mod role, and logs.',
                     '**2. Enable systems** — Use `/commands dashboard` to turn categories on or off.',
                     '**3. Browse commands** — Use the menu below to view categories and commands.',
-                ].join('\\n'),
+                ].join('\n'),
                 inline: false,
             },
             {
@@ -96,11 +97,11 @@ export async function createInitialHelpMenu(client) {
                     '• Dashboard commands manage each feature visually',
                     '• Settings are saved per server',
                     '• Slash commands and prefixes both work once enabled',
-                ].join('\\n'),
+                ].join('\n'),
                 inline: false,
             },
             {
-                name: '\\u200B',
+                name: '\u200B',
                 value: `-# ${botName} is [open source](https://youtu.be/1jCZX8s3bJE?si=NPOYx-vxVE1I5vJK)`,
                 inline: false,
             },
@@ -138,7 +139,6 @@ export default {
         .setDescription("Displays the help menu with all available commands"),
 
     async execute(interaction, guildConfig, client) {
-        const { MessageFlags } = await import('discord.js');
         await InteractionHelper.safeDefer(interaction);
 
         const { embeds, components } = await createInitialHelpMenu(client);
