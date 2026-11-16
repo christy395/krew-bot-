@@ -236,7 +236,7 @@ Notes:
    npm start
    ```
 
-> **Note on database migrations:** MongoDB indexes and the schema-version record are prepared automatically on startup. You can preview or run legacy key canonicalisation with `npm run migrate:keys:dry` or `npm run migrate:keys`.
+> **Note on database migrations:** MongoDB indexes and the schema-version record are prepared automatically on startup. Unless you set `AUTO_MIGRATE=false`, legacy key canonicalisation also runs once when MongoDB first connects. To preview it before first startup, set `AUTO_MIGRATE=false` and run `npm run migrate:keys:dry`; run `npm run migrate:keys` to apply it manually.
 <a name="bot-intents"></a>
 
 ## Required Bot Intents

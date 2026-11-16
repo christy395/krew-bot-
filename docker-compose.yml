@@ -10,7 +10,7 @@ services:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       CLIENT_ID: ${CLIENT_ID}
       GUILD_ID: ${GUILD_ID}
-      MONGODB_URI: ${MONGODB_URI:-mongodb://titanbot:titanbot@mongo:27017/titanbot?authSource=admin}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_USER:-titanbot}:${MONGODB_PASSWORD:-titanbot}@mongo:27017/${MONGODB_DB_NAME:-titanbot}?authSource=admin}
       MONGODB_DB_NAME: ${MONGODB_DB_NAME:-titanbot}
       AUTO_MIGRATE: "true"
       LOG_LEVEL: ${LOG_LEVEL:-warn}
