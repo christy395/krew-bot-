@@ -9,7 +9,7 @@ function resolveMongoConfig() {
 
     if (!databaseName) {
         try {
-            databaseName = new URL(uri).pathname.replace(/^\\//, '').split('/')[0];
+            databaseName = new URL(uri).pathname.split('/').filter(Boolean)[0] || '';
         } catch {
             databaseName = '';
         }

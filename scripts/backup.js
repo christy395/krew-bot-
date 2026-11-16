@@ -17,7 +17,7 @@ function timestamp() {
 
 function databaseNameFromUri(uri) {
     try {
-        return new URL(uri).pathname.replace(/^\\//, '').split('/')[0] || 'titanbot';
+        return new URL(uri).pathname.split('/').filter(Boolean)[0] || 'titanbot';
     } catch {
         return 'titanbot';
     }
