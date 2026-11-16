@@ -58,13 +58,16 @@ const DISCORD_PERMISSION_CODES = new Set([
     160002, // Cannot reply without permission to read message history
 ]);
 
-// PostgreSQL / node-postgres error codes and errno values that indicate database trouble.
+// Network and MongoDB server codes that indicate database trouble.
 const DATABASE_ERROR_CODES = new Set([
-    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
-    '57014', // query_canceled (statement timeout)
-    '53300', // too_many_connections
-    '08006', '08001', '08003', // connection failures
-    '40001', '40P01', // serialization failure / deadlock
+    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND',
+]);
+const MONGODB_SERVER_ERROR_CODES = new Set([
+    13, // Unauthorized
+    18, // AuthenticationFailed
+    91, // ShutdownInProgress
+    11600, // InterruptedAtShutdown
+    11602, // InterruptedDueToReplStateChange
 ]);
 
 const TECHNICAL_ERROR_PATTERNS = [
@@ -75,7 +78,7 @@ const TECHNICAL_ERROR_PATTERNS = [
     /is not a function/i,
     /is not defined/i,
     /unexpected token/i,
-    /econnrefused|enotfound|etimedout|econnreset/i,
+    /econnrefused|enotfound|etimedout|econnreset|mongoserverselectionerror|mongonetworkerror|mongoparseerror/i,
     /node_modules/i,
     /\sat\s.+\(.+\:\d+\:\d+\)/,
 ];
@@ -142,7 +145,7 @@ function inferErrorTypeFromUserMessage(message = '') {
         return ErrorTypes.RATE_LIMIT;
     }
 
-    if (lowerMessage.includes('database') || lowerMessage.includes('postgres') || lowerMessage.includes('sql')) {
+    if (lowerMessage.includes('database') || lowerMessage.includes('mongodb') || lowerMessage.includes('mongo') || lowerMessage.includes('sql')) {
         return ErrorTypes.DATABASE;
     }
 
@@ -189,7 +192,8 @@ export function categorizeError(error) {
     const message = error?.message?.toLowerCase() || '';
     const code = error?.code;
 
-    if (typeof code === 'string' && DATABASE_ERROR_CODES.has(code)) {
+    if ((typeof code === 'string' && DATABASE_ERROR_CODES.has(code))
+        || (typeof code === 'number' && MONGODB_SERVER_ERROR_CODES.has(code))) {
         return ErrorTypes.DATABASE;
     }
 
@@ -214,7 +218,7 @@ export function categorizeError(error) {
         return ErrorTypes.PERMISSION;
     }
 
-    if (message.includes('database') || message.includes('postgres') || message.includes('sql') || message.includes('connection') || message.includes('timeout')) {
+    if (message.includes('database') || message.includes('mongodb') || message.includes('mongo') || message.includes('sql') || message.includes('connection') || message.includes('timeout')) {
         return ErrorTypes.DATABASE;
     }
 

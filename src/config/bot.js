@@ -486,7 +486,7 @@ export function validateConfig(config) {
     logger.debug('TOKEN exists:', !!process.env.TOKEN);
     logger.debug('CLIENT_ID exists:', !!process.env.CLIENT_ID);
     logger.debug('GUILD_ID exists:', !!process.env.GUILD_ID);
-    logger.debug('POSTGRES_HOST exists:', !!process.env.POSTGRES_HOST);
+    logger.debug('MONGODB_URI exists:', !!process.env.MONGODB_URI);
     logger.debug('NODE_ENV:', process.env.NODE_ENV);
   }
 
@@ -498,22 +498,8 @@ export function validateConfig(config) {
     errors.push("Client ID is required (CLIENT_ID environment variable)");
   }
 
-  if (process.env.NODE_ENV === 'production') {
-    // A full connection URL (DATABASE_URL / POSTGRES_URL) satisfies all Postgres
-    // requirements, matching how src/config/database/postgres.js resolves the pool config.
-    const hasConnectionUrl = Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL);
-
-    if (!hasConnectionUrl) {
-      if (!process.env.POSTGRES_HOST) {
-        errors.push("PostgreSQL connection is required in production (set DATABASE_URL/POSTGRES_URL, or POSTGRES_HOST)");
-      }
-      if (!process.env.POSTGRES_USER) {
-        errors.push("PostgreSQL user is required in production (set DATABASE_URL/POSTGRES_URL, or POSTGRES_USER)");
-      }
-      if (!process.env.POSTGRES_PASSWORD) {
-        errors.push("PostgreSQL password is required in production (set DATABASE_URL/POSTGRES_URL, or POSTGRES_PASSWORD)");
-      }
-    }
+  if (process.env.NODE_ENV === 'production' && !process.env.MONGODB_URI) {
+    errors.push("MongoDB connection string is required in production (set the MONGODB_URI environment variable)");
   }
 
   return errors;

@@ -37,7 +37,7 @@ const ErrorCodeRegistry = Object.freeze({
   [ErrorCodes.DATABASE_ERROR]: {
     severity: 'high',
     retryable: true,
-    remediation: 'Check Postgres connectivity, pool saturation, statement timeouts, and recent migrations.'
+    remediation: 'Check MongoDB connectivity, authentication, server availability, connection pool limits, and recent key migrations.'
   },
   [ErrorCodes.NETWORK_ERROR]: {
     severity: 'medium',

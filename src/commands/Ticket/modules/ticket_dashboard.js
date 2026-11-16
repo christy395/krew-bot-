@@ -981,12 +981,13 @@ async function handleDeleteSystem(btnInteraction, rootInteraction, guildConfig, 
     }
 
     try {
-        const { pgConfig } = await import('../../../config/database/postgres.js');
-        if (client.db?.db?.pool && typeof client.db.db.isAvailable === 'function' && client.db.db.isAvailable()) {
-            await client.db.db.pool.query(
-                `DELETE FROM ${pgConfig.tables.tickets} WHERE guild_id = $1`,
-                [guildId]
-            );
+        const ticketPrefix = `guild:${guildId}:ticket:`;
+        const ticketKeys = await client.db?.list?.(ticketPrefix) || [];
+        for (const ticketKey of ticketKeys) {
+            // Keep the monotonically increasing ticket counter, matching the old SQL cleanup.
+            if (!ticketKey.endsWith(':counter')) {
+                await client.db.delete(ticketKey);
+            }
         }
     } catch (ticketDeleteError) {
         logger.warn('Could not clear ticket records from database:', ticketDeleteError.message);

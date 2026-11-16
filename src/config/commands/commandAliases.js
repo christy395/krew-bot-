@@ -12,8 +12,6 @@ export const commandAliases = {
     'with': 'withdraw',
     'work': 'work',
     'daily': 'daily',
-    'gamble': 'gamble',
-    'bet': 'gamble',
     'rob': 'rob',
     'crime': 'crime',
     'pay': 'pay',
