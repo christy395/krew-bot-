@@ -1,10 +1,10 @@
 # TitanBot - Ultimate Discord Bot
 
-**TitanBot** is a powerful, feature-rich Discord bot designed to enhance your server experience with comprehensive moderation tools, engaging economy systems, utility features, and much more. Built with modern Discord.js v14 and PostgreSQL for optimal performance and data persistence.
+**TitanBot** is a powerful, feature-rich Discord bot designed to enhance your server experience with comprehensive moderation tools, engaging economy systems, utility features, and much more. Built with modern Discord.js v14 and MongoDB for optimal performance and data persistence.
 
 [![Support Server](https://img.shields.io/badge/-Support%20Server-%235865F2?logo=discord&logoColor=white&style=flat-square&logoWidth=20)](https://discord.gg/BekKRDSvu)
 [![Discord.js](https://img.shields.io/npm/v/discord.js?style=flat-square&labelColor=%23202225&color=%23202225&logo=npm&logoColor=white&logoWidth=20)](https://www.npmjs.com/package/discord.js)
-![PostgreSQL](https://img.shields.io/badge/-PostgreSQL-%23336791?logo=postgresql&logoColor=white&style=flat-square&logoWidth=20)
+![MongoDB](https://img.shields.io/badge/-MongoDB-%2347A248?logo=mongodb&logoColor=white&style=flat-square&logoWidth=20)
 
 ## Table of Contents
 
@@ -111,7 +111,7 @@ TitanBot is fully containerized for easy deployment.
    ```bash
    cp .env.example .env
    ```
-   Set at minimum `DISCORD_TOKEN`, `CLIENT_ID`, and `GUILD_ID`. Docker Compose also reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` from `.env` (defaults: `titanbot` / `password` / `titanbot`).
+   Set at minimum `DISCORD_TOKEN`, `CLIENT_ID`, and `GUILD_ID`. Docker Compose also reads `MONGODB_USER`, `MONGODB_PASSWORD`, and `MONGODB_DB_NAME` from `.env` (defaults: `titanbot` / `titanbot` / `titanbot`).
 
 3. **Build and start the containers:**
    ```bash
@@ -124,7 +124,7 @@ TitanBot is fully containerized for easy deployment.
    curl http://localhost:3000/health
    ```
 
-This starts the bot and PostgreSQL. The compose file sets `POSTGRES_SSL=false` and `AUTO_MIGRATE=true` for the bundled database. Music uses public Lavalink v4 nodes from `lavalink/nodes.json` by default.
+This starts the bot and MongoDB. MongoDB indexes and the schema-version record are prepared automatically.
 
 ### Music
 
@@ -155,7 +155,7 @@ docker pull ghcr.io/codebymitch/titanbot:main
 
 ### Prerequisites
 - Node.js 20.10.0 or higher
-- PostgreSQL server (recommended) or memory storage fallback
+- MongoDB server (recommended) or memory storage fallback
 - Discord bot application with proper intents
 
 1. **Clone the Repository**
@@ -180,13 +180,9 @@ docker pull ghcr.io/codebymitch/titanbot:main
    CLIENT_ID=your_discord_client_id_here
    GUILD_ID=your_discord_guild_id_here
 
-   # PostgreSQL Configuration (Primary Database)
-   POSTGRES_URL=postgresql://postgres:yourpassword@localhost:5432/titanbot
-   POSTGRES_HOST=localhost
-   POSTGRES_PORT=5432
-   POSTGRES_DB=titanbot
-   POSTGRES_USER=postgres
-   POSTGRES_PASSWORD=yourpassword
+   # MongoDB Configuration
+   MONGODB_URI=mongodb://127.0.0.1:27017/titanbot
+   MONGODB_DB_NAME=titanbot
    ```
 
    Production note:
@@ -211,6 +207,10 @@ docker pull ghcr.io/codebymitch/titanbot:main
    This gives clear startup/online status messages while keeping logs simple for non-technical operators.
    If port `3000` is busy, the bot tries the next available ports automatically (up to `PORT_RETRY_ATTEMPTS`).
 
+### Backups and restores
+
+Create a compressed Extended JSON backup with `npm run backup:db`. A restore replaces documents in matching collections, so verify the target database before running `npm run restore:db -- --file ./backups/backup.json.gz --confirm`.
+
 ### Multiple servers
 
 Slash commands are registered **globally** on startup (via `CLIENT_ID`), so the bot works in every server it is invited to. `GUILD_ID` stays in the tutorial `.env` for setup steps but is not used for command registration.
@@ -221,14 +221,10 @@ Notes:
 - In the [Discord Developer Portal](https://discord.com/developers/applications), ensure your bot is not restricted to a single guild if you plan to invite it elsewhere
 - Generate an OAuth2 invite URL from the [Discord Developer Portal](https://discord.com/developers/applications) (OAuth2 → URL Generator, scopes: `bot` and `applications.commands`)
 
-4. **Setup PostgreSQL Database** (Optional but recommended)
-   ```bash
-   # Create database and user
-   createdb titanbot
-   createuser titanbot
-   psql -c "ALTER USER titanbot PASSWORD 'yourpassword';"
-   psql -c "GRANT ALL PRIVILEGES ON DATABASE titanbot TO titanbot;"
-   ```
+4. **Set up MongoDB**
+   - For a local MongoDB server, set `MONGODB_URI=mongodb://127.0.0.1:27017/titanbot`.
+   - For MongoDB Atlas, put your cluster connection string in `MONGODB_URI` and set `MONGODB_DB_NAME=titanbot`.
+   - Ensure the database user has permission to read and write the selected database.
 
 5. **Verify Database Setup**
    ```bash
@@ -240,11 +236,7 @@ Notes:
    npm start
    ```
 
-> **Note on database migrations:** Schema tables and legacy key migrations run
-> **automatically on startup**, so` managed hosts like **Railway** need no manual
-> migration step — just deploy/restart. To disable auto-migration set
-> `AUTO_MIGRATE=false`. You can still run a manual key migration locally with
-> `node scripts/migrate-keys.js --dry-run` (preview) or `node scripts/migrate-keys.js`.
+> **Note on database migrations:** MongoDB indexes and the schema-version record are prepared automatically on startup. You can preview or run legacy key canonicalisation with `npm run migrate:keys:dry` or `npm run migrate:keys`.
 <a name="bot-intents"></a>
 
 ## Required Bot Intents

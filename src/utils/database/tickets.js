@@ -5,49 +5,23 @@ import { getTicketCounterKey, getTicketKey } from './keys.js';
 export { getTicketKey, getTicketCounterKey } from './keys.js';
 
 export async function getTicketData(guildId, channelId) {
-    if (!db.initialized) {
-        await db.initialize();
-    }
-
-    const key = getTicketKey(guildId, channelId);
-    return await db.get(key);
+    if (!db.initialized) await db.initialize();
+    return db.get(getTicketKey(guildId, channelId));
 }
 
 export async function getOpenTicketCountForUser(guildId, userId) {
     try {
-        if (!db.initialized) {
-            await db.initialize();
+        if (!db.initialized) await db.initialize();
+        const ticketKeys = await db.list(`guild:${guildId}:ticket:`);
+        let count = 0;
+
+        for (const key of ticketKeys) {
+            if (key.endsWith(':counter')) continue;
+            const ticket = await getFromDb(key, null);
+            if (ticket && ticket.userId === userId && ticket.status === 'open') count += 1;
         }
 
-        if (db.db?.pool && typeof db.db.isAvailable === 'function' && db.db.isAvailable()) {
-            const { pgConfig } = await import('../../config/database/postgres.js');
-            const result = await db.db.pool.query(
-                `SELECT COUNT(*)::int AS count FROM ${pgConfig.tables.tickets}
-                 WHERE guild_id = $1
-                   AND data->>'userId' = $2
-                   AND data->>'status' = 'open'`,
-                [guildId, userId],
-            );
-
-            return Number(result.rows?.[0]?.count || 0);
-        }
-
-        if (typeof db.list === 'function') {
-            const ticketKeys = await db.list(`guild:${guildId}:ticket:`);
-            let count = 0;
-
-            for (const key of ticketKeys) {
-                if (key.endsWith(':counter')) continue;
-                const ticket = await getFromDb(key, null);
-                if (ticket && ticket.userId === userId && ticket.status === 'open') {
-                    count += 1;
-                }
-            }
-
-            return count;
-        }
-
-        return 0;
+        return count;
     } catch (error) {
         logger.error(`Error counting open tickets for user ${userId} in guild ${guildId}:`, error);
         return 0;
@@ -55,65 +29,28 @@ export async function getOpenTicketCountForUser(guildId, userId) {
 }
 
 export async function saveTicketData(guildId, channelId, data) {
-    if (!db.initialized) {
-        await db.initialize();
-    }
-
-    const key = getTicketKey(guildId, channelId);
-    await db.set(key, data);
+    if (!db.initialized) await db.initialize();
+    await db.set(getTicketKey(guildId, channelId), data);
 }
 
 export async function deleteTicketData(guildId, channelId) {
-    if (!db.initialized) {
-        await db.initialize();
-    }
-
-    const key = getTicketKey(guildId, channelId);
-    await db.delete(key);
+    if (!db.initialized) await db.initialize();
+    await db.delete(getTicketKey(guildId, channelId));
 }
 
 export async function getTicketCounter(guildId) {
-    if (!db.initialized) {
-        await db.initialize();
-    }
-
-    const key = getTicketCounterKey(guildId);
-    const counter = await db.get(key);
-    return counter || 0;
+    if (!db.initialized) await db.initialize();
+    return (await db.get(getTicketCounterKey(guildId))) || 0;
 }
 
 export async function incrementTicketCounter(guildId) {
-    if (!db.initialized) {
-        await db.initialize();
-    }
-
-    const key = getTicketCounterKey(guildId);
-    const currentCounter = await getTicketCounter(guildId);
-    const nextCounter = currentCounter + 1;
-
-    await db.set(key, nextCounter);
-
-    return nextCounter.toString().padStart(3, '0');
+    if (!db.initialized) await db.initialize();
+    const nextCounter = await db.increment(getTicketCounterKey(guildId), 1);
+    return Number(nextCounter).toString().padStart(3, '0');
 }
 
 async function listGuildTickets(guildId) {
-    if (!db.initialized) {
-        await db.initialize();
-    }
-
-    if (db.db?.pool && typeof db.db.isAvailable === 'function' && db.db.isAvailable()) {
-        const { pgConfig } = await import('../../config/database/postgres.js');
-        const result = await db.db.pool.query(
-            `SELECT data FROM ${pgConfig.tables.tickets} WHERE guild_id = $1`,
-            [guildId],
-        );
-        return result.rows.map((row) => row.data).filter(Boolean);
-    }
-
-    if (typeof db.list !== 'function') {
-        return [];
-    }
-
+    if (!db.initialized) await db.initialize();
     const ticketKeys = await db.list(`guild:${guildId}:ticket:`);
     const tickets = [];
 

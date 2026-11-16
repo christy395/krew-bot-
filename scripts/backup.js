@@ -1,150 +1,77 @@
-import { spawnSync } from 'node:child_process';
+import dotenv from 'dotenv';
+import { createGzip } from 'node:zlib';
+import { createWriteStream } from 'node:fs';
 import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import dotenv from 'dotenv';
-import { logger } from '../src/utils/logger.js';
+import { EJSON, MongoClient } from 'mongodb';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
-function parseArgs(argv) {
-  const args = {};
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token.startsWith('--')) {
-      continue;
-    }
-
-    const [rawKey, inlineValue] = token.slice(2).split('=');
-    if (typeof inlineValue !== 'undefined') {
-      args[rawKey] = inlineValue;
-      continue;
-    }
-
-    const nextToken = argv[index + 1];
-    if (!nextToken || nextToken.startsWith('--')) {
-      args[rawKey] = true;
-      continue;
-    }
-
-    args[rawKey] = nextToken;
-    index += 1;
-  }
-
-  return args;
+function timestamp() {
+    return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
-function assertEnv(name) {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
-
-function ensureCommand(command) {
-  const result = spawnSync(command, ['--version'], {
-    encoding: 'utf8',
-    stdio: 'pipe',
-    shell: process.platform === 'win32'
-  });
-
-  if (result.status !== 0) {
-    throw new Error(`${command} is required but was not found in PATH.`);
-  }
-}
-
-function createTimestamp() {
-  const now = new Date();
-  const pad = (value) => String(value).padStart(2, '0');
-  return `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`;
-}
-
-async function pruneBackups(backupDir, retentionDays) {
-  if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
-    return;
-  }
-
-  const entries = await readdir(backupDir, { withFileTypes: true });
-  const cutoff = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
-  let removed = 0;
-
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.dump')) {
-      continue;
+function databaseNameFromUri(uri) {
+    try {
+        return new URL(uri).pathname.replace(/^\\//, '').split('/')[0] || 'titanbot';
+    } catch {
+        return 'titanbot';
     }
+}
 
-    const fullPath = path.join(backupDir, entry.name);
-    const fileStats = await stat(fullPath);
-    if (fileStats.mtimeMs < cutoff) {
-      await unlink(fullPath);
-      removed += 1;
+async function pruneBackups(directory, retentionDays) {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return;
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    for (const name of await readdir(directory)) {
+        if (!name.endsWith('.json.gz')) continue;
+        const fullPath = path.join(directory, name);
+        if ((await stat(fullPath)).mtimeMs < cutoff) await unlink(fullPath);
     }
-  }
-
-  if (removed > 0) {
-    logger.info(`Pruned ${removed} old backup file(s)`, {
-      event: 'backup.prune.completed',
-      removed,
-      retentionDays
-    });
-  }
 }
 
 async function run() {
-  const args = parseArgs(process.argv.slice(2));
-  const databaseUrl = assertEnv('POSTGRES_URL');
-  const retentionDays = Number.parseInt(args['retention-days'] || process.env.BACKUP_RETENTION_DAYS || '14', 10);
-  const backupDir = path.resolve(args['backup-dir'] || process.env.BACKUP_DIR || path.join(process.cwd(), 'backups'));
+    const uri = process.env.MONGODB_URI;
+    if (!uri) throw new Error('Missing MONGODB_URI.');
+    const databaseName = process.env.MONGODB_DB_NAME || databaseNameFromUri(uri);
+    const backupDir = path.resolve(process.env.BACKUP_DIR || path.join(process.cwd(), 'backups'));
+    const retentionDays = Number.parseInt(process.env.BACKUP_RETENTION_DAYS || '14', 10);
+    await mkdir(backupDir, { recursive: true });
 
-  ensureCommand('pg_dump');
-  await mkdir(backupDir, { recursive: true });
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000, appName: 'TitanBot Backup' });
+    await client.connect();
+    try {
+        const database = client.db(databaseName);
+        const collectionNames = (await database.listCollections({}, { nameOnly: true }).toArray())
+            .map(item => item.name)
+            .filter(name => !name.startsWith('system.'));
+        const snapshot = {
+            format: 'titanbot-mongodb-backup-v1',
+            databaseName,
+            createdAt: new Date(),
+            collections: [],
+        };
 
-  const outputPath = args.output
-    ? path.resolve(args.output)
-    : path.join(backupDir, `titanbot-backup-${createTimestamp()}.dump`);
+        for (const name of collectionNames) {
+            const documents = await database.collection(name).find({}).toArray();
+            snapshot.collections.push({ name, documents });
+        }
 
-  const dumpArgs = [
-    '--format=custom',
-    '--no-owner',
-    '--no-privileges',
-    '--file',
-    outputPath,
-    databaseUrl
-  ];
-
-  logger.info('Starting PostgreSQL backup', {
-    event: 'backup.start',
-    outputPath
-  });
-
-  const result = spawnSync('pg_dump', dumpArgs, {
-    encoding: 'utf8',
-    stdio: 'pipe',
-    shell: process.platform === 'win32'
-  });
-
-  if (result.status !== 0) {
-    throw new Error(`pg_dump failed: ${result.stderr || result.stdout || 'Unknown error'}`);
-  }
-
-  await pruneBackups(backupDir, retentionDays);
-
-  logger.info('PostgreSQL backup completed', {
-    event: 'backup.completed',
-    outputPath,
-    retentionDays
-  });
-
-  process.stdout.write(`${outputPath}\n`);
+        const backupPath = path.join(backupDir, `mongodb-backup-${timestamp()}.json.gz`);
+        const content = EJSON.stringify(snapshot, { relaxed: false });
+        await pipeline(Readable.from([content]), createGzip({ level: 9 }), createWriteStream(backupPath));
+        await pruneBackups(backupDir, retentionDays);
+        console.log(`MongoDB backup created: ${backupPath}`);
+        console.log(`Collections saved: ${snapshot.collections.length}`);
+    } finally {
+        await client.close();
+    }
 }
 
-run().catch((error) => {
-  logger.error('Backup command failed', {
-    event: 'backup.failed',
-    error: error.message
-  });
-  process.exit(1);
+run().catch(error => {
+    console.error('MongoDB backup failed:', error.message);
+    process.exitCode = 1;
 });

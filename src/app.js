@@ -64,9 +64,9 @@ class TitanBot extends Client {
         logger.warn('╔═══════════════════════════════════════════════════════╗');
         logger.warn('║ ⚠️  DATABASE RUNNING IN DEGRADED MODE                 ║');
         logger.warn('║                                                       ║');
-        logger.warn('║ Connection: In-Memory Storage (PostgreSQL unavailable)║');
+        logger.warn('║ Connection: In-Memory Storage (MongoDB unavailable)║');
         logger.warn('║ Data Persistence: DISABLED - data lost on restart    ║');
-        logger.warn('║ Action Required: Fix PostgreSQL and restart bot      ║');
+        logger.warn('║ Action Required: Fix MongoDB and restart bot      ║');
         logger.warn('╚═══════════════════════════════════════════════════════╝');
         logger.warn('');
       } else {
@@ -352,17 +352,13 @@ class TitanBot extends Client {
         logger.info('✅ Web server closed');
       }
 
-      // Close database connection
-      // Close database connection
-      if (this.db && this.db.db) {
+      if (this.db && typeof this.db.disconnect === 'function') {
         logger.info('Closing database connection...');
         try {
-          if (this.db.db.pool) {
-            await this.db.db.pool.end();
-            logger.info('✅ Database connection closed');
-          }
+          await this.db.disconnect();
+          logger.info('✅ Database connection closed');
         } catch (error) {
-          logger.warn('Error closing database pool:', error.message);
+          logger.warn('Error closing database connection:', error.message);
         }
       }
 

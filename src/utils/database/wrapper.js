@@ -1,4 +1,4 @@
-import { pgDb } from '../postgresDatabase.js';
+import { mongoDb } from '../mongoDatabase.js';
 import { MemoryStorage } from '../memoryStorage.js';
 import { logger } from '../logger.js';
 import { validateGuildConfigOrThrow } from '../schemas.js';
@@ -14,59 +14,49 @@ class DatabaseWrapper {
     }
 
     async initialize() {
-        if (this.initialized) {
-            return;
-        }
+        if (this.initialized) return;
 
         try {
-            logger.info('Attempting to connect to PostgreSQL...');
-            const pgConnected = await pgDb.connect();
-            if (pgConnected) {
-                this.db = pgDb;
-                this.connectionType = 'postgresql';
+            logger.info('Attempting to connect to MongoDB...');
+            const connected = await mongoDb.connect();
+            if (connected) {
+                this.db = mongoDb;
+                this.connectionType = 'mongodb';
                 this.degradedReason = null;
-                logger.info('✅ PostgreSQL Database initialized - using persistent database');
+                logger.info('MongoDB initialized - persistent storage is enabled');
                 this.initialized = true;
                 return;
             }
 
-            const pgFailure = pgDb.getLastFailure?.();
-            if (pgFailure?.reason === 'SCHEMA_VERSION_MISMATCH') {
-                const schemaError = new Error(
-                    `Schema version mismatch detected (${pgFailure.message}). Run migrations before startup.`,
+            const failure = mongoDb.getLastFailure?.();
+            if (failure?.reason === 'SCHEMA_VERSION_MISMATCH') {
+                const error = new Error(
+                    `MongoDB schema version mismatch (${failure.message}). Run the migration check before startup.`,
                 );
-                schemaError.code = 'SCHEMA_VERSION_MISMATCH';
-                throw schemaError;
-            }
-        } catch (error) {
-            logger.warn('PostgreSQL connection failed:', error.message);
-
-            if (error.code === 'SCHEMA_VERSION_MISMATCH') {
+                error.code = 'SCHEMA_VERSION_MISMATCH';
                 throw error;
             }
+        } catch (error) {
+            logger.warn('MongoDB connection failed:', error.message);
+            if (error.code === 'SCHEMA_VERSION_MISMATCH') throw error;
         }
 
         this.db = new MemoryStorage();
         this.useFallback = true;
         this.connectionType = 'memory';
-        this.degradedReason = 'POSTGRES_UNAVAILABLE';
-        logger.warn('⚠️ DATABASE DEGRADED MODE ENABLED - Using in-memory storage (data will be lost on restart)');
-        logger.warn('⚠️ Please check PostgreSQL connection and restart the bot when fixed');
+        this.degradedReason = 'MONGODB_UNAVAILABLE';
+        logger.warn('DATABASE DEGRADED MODE - using in-memory storage; data will be lost on restart');
+        logger.warn('Check MONGODB_URI and MongoDB network access, then restart the bot');
         this.initialized = true;
         this.degradedModeWarningShown = true;
     }
 
     async set(key, value, ttl = null) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Writing to memory: ${key}`);
-        }
+        if (this.useFallback) logger.debug(`[DEGRADED] Writing to memory: ${key}`);
 
         if (typeof key === 'string' && /^guild:[^:]+:config$/.test(key)) {
             const guildId = key.split(':')[1];
-            validateGuildConfigOrThrow(value, {
-                guildId,
-                errorCode: 'VALIDATION_FAILED',
-            });
+            validateGuildConfigOrThrow(value, { guildId, errorCode: 'VALIDATION_FAILED' });
         }
 
         return this.db.set(key, value, ttl);
@@ -77,9 +67,7 @@ class DatabaseWrapper {
     }
 
     async delete(key) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Deleting from memory: ${key}`);
-        }
+        if (this.useFallback) logger.debug(`[DEGRADED] Deleting from memory: ${key}`);
         return this.db.delete(key);
     }
 
@@ -88,37 +76,34 @@ class DatabaseWrapper {
     }
 
     async exists(key) {
-        if (this.db.exists) {
-            return this.db.exists(key);
-        }
+        if (this.db.exists) return this.db.exists(key);
         const value = await this.db.get(key);
         return value !== null;
     }
 
     async increment(key, amount = 1) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Incrementing in memory: ${key}`);
-        }
-        if (this.db.increment) {
-            return this.db.increment(key, amount);
-        }
+        if (this.useFallback) logger.debug(`[DEGRADED] Incrementing in memory: ${key}`);
+        if (this.db.increment) return this.db.increment(key, amount);
         const current = await this.db.get(key, 0);
-        const newValue = current + amount;
-        await this.db.set(key, newValue);
-        return newValue;
+        const next = current + amount;
+        await this.db.set(key, next);
+        return next;
     }
 
     async decrement(key, amount = 1) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Decrementing in memory: ${key}`);
-        }
-        if (this.db.decrement) {
-            return this.db.decrement(key, amount);
-        }
+        if (this.useFallback) logger.debug(`[DEGRADED] Decrementing in memory: ${key}`);
+        if (this.db.decrement) return this.db.decrement(key, amount);
         const current = await this.db.get(key, 0);
-        const newValue = current - amount;
-        await this.db.set(key, newValue);
-        return newValue;
+        const next = current - amount;
+        await this.db.set(key, next);
+        return next;
+    }
+
+    async disconnect() {
+        if (this.db && typeof this.db.disconnect === 'function') {
+            await this.db.disconnect();
+        }
+        this.initialized = false;
     }
 
     isDegraded() {
@@ -126,7 +111,7 @@ class DatabaseWrapper {
     }
 
     isAvailable() {
-        return this.db && !this.useFallback;
+        return Boolean(this.db && !this.useFallback);
     }
 
     getStatus() {
@@ -148,17 +133,13 @@ export const db = new DatabaseWrapper();
 
 export async function initializeDatabase() {
     try {
-        logger.info('Initializing Database (PostgreSQL > Memory fallback)...');
+        logger.info('Initializing Database (MongoDB > Memory fallback)...');
         await db.initialize();
-        logger.info('✅ Database initialized');
+        logger.info('Database initialized');
         return { db };
     } catch (error) {
-        logger.error('❌ Database Initialization Error:', error);
-
-        if (error.code === 'SCHEMA_VERSION_MISMATCH') {
-            throw error;
-        }
-
+        logger.error('Database initialization error:', error);
+        if (error.code === 'SCHEMA_VERSION_MISMATCH') throw error;
         return { db };
     }
 }

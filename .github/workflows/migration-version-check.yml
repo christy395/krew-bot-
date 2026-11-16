@@ -1,4 +1,4 @@
-name: Migration Version Check
+name: MongoDB Migration Check
 
 on:
   pull_request:
@@ -7,52 +7,45 @@ on:
       - main
       - master
       - mitchwork
+      - remove-gambling-migrate-mongodb
 
 jobs:
   migration-check:
     runs-on: ubuntu-latest
-
     services:
-      postgres:
-        image: postgres:16
+      mongo:
+        image: mongo:8.0
         env:
-          POSTGRES_USER: titanbot
-          POSTGRES_PASSWORD: titanbot
-          POSTGRES_DB: titanbot
+          MONGO_INITDB_ROOT_USERNAME: titanbot
+          MONGO_INITDB_ROOT_PASSWORD: titanbot
         ports:
-          - 5432:5432
+          - 27017:27017
         options: >-
-          --health-cmd "pg_isready -U titanbot -d titanbot"
+          --health-cmd "mongosh --quiet --username titanbot --password titanbot --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 }).ok' | grep 1"
           --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-timeout 10s
+          --health-retries 10
 
     env:
-      POSTGRES_URL: postgresql://titanbot:titanbot@localhost:5432/titanbot
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: titanbot
-      POSTGRES_USER: titanbot
-      POSTGRES_PASSWORD: titanbot
-      POSTGRES_SSL: "false"
+      MONGODB_URI: mongodb://titanbot:titanbot@localhost:27017/titanbot?authSource=admin
+      MONGODB_DB_NAME: titanbot
       SCHEMA_VERSION: "1"
       SCHEMA_VERSION_LABEL: "baseline-v1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-
       - name: Install dependencies
-        run: npm ci
-
-      - name: Apply migrations
+        run: npm install
+      - name: Check JavaScript syntax
+        run: npm run check:syntax
+      - name: Apply MongoDB indexes and schema ledger
         run: npm run migrate
-
-      - name: Validate migration version
+      - name: Validate MongoDB schema version
         run: npm run migrate:check
+      - name: Preview legacy key migration
+        run: npm run migrate:keys:dry
