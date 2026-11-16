@@ -50,19 +50,6 @@ roleId: null,
         }
     },
     {
-        id: 'lucky_clover',
-        name: 'Lucky Clover',
-        price: 10000,
-        description: 'Increases the chance of winning a higher payout on `/gamble` once.',
-        type: 'consumable',
-        maxQuantity: 10,
-        effect: {
-            type: 'gamble_boost',
-            multiplier: 1.5,
-            uses: 1
-        }
-    },
-    {
         id: 'fishing_rod',
         name: '🎣 Fishing Rod',
         price: 5000,
@@ -96,19 +83,6 @@ roleId: null,
         effect: {
             type: 'work_yield',
             multiplier: 1.5
-        }
-    },
-    {
-        id: 'lucky_charm',
-        name: '🍀 Lucky Charm',
-        price: 10000,
-        description: 'Increases luck for gambling. Has 3 uses before being consumed.',
-        type: 'consumable',
-        maxQuantity: 10,
-        effect: {
-            type: 'gamble_boost',
-            multiplier: 1.3,
-            uses: 3
         }
     },
     {
