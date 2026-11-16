@@ -31,7 +31,6 @@ TitanBot offers a complete suite of tools for Discord server management and comm
 
 ### Economy System
 - **Shop & Inventory** - Buy and manage items
-- **Gambling** - Risk it for rewards
 - **Pay System** - Transfer money between users
 
 ### Fun & Entertainment
