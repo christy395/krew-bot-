@@ -386,14 +386,5 @@ export function getShopInventory() {
             effect: 'bank_capacity',
             value: 50000
         },
-        {
-            id: 'lottery_ticket',
-            name: 'Lottery Ticket',
-            emoji: '🎫',
-            price: 100,
-            description: 'A chance to win big!',
-            type: 'consumable',
-            use: 'gamble'
-        }
     ];
 }
