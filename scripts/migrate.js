@@ -2,6 +2,10 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Keep status/check/apply commands from silently migrating legacy keys.
+// Use `npm run migrate:keys` (or its dry-run variant) for that operation.
+process.env.AUTO_MIGRATE = 'false';
+
 const { mongoDb } = await import('../src/utils/mongoDatabase.js');
 
 const command = process.argv[2] || 'status';
