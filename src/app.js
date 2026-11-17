@@ -65,9 +65,9 @@ class TitanBot extends Client {
         logger.warn('╔═══════════════════════════════════════════════════════╗');
         logger.warn('║ ⚠️  DATABASE RUNNING IN DEGRADED MODE                 ║');
         logger.warn('║                                                       ║');
-        logger.warn('║ Connection: In-Memory Storage (MongoDB unavailable)║');
+        logger.warn('║ Connection: In-Memory Storage (PostgreSQL unavailable)║');
         logger.warn('║ Data Persistence: DISABLED - data lost on restart    ║');
-        logger.warn('║ Action Required: Fix MongoDB and restart bot      ║');
+        logger.warn('║ Action Required: Fix DATABASE_URL and restart bot ║');
         logger.warn('╚═══════════════════════════════════════════════════════╝');
         logger.warn('');
       } else {
