@@ -7,6 +7,7 @@ import cron from 'node-cron';
 import config from './config/application.js';
 import { initializeDatabase } from './utils/database.js';
 import { getGuildConfig } from './services/config/guildConfig.js';
+import { getWelcomeConfig, updateWelcomeConfig } from './utils/database.js';
 import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
 import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { checkBirthdays } from './services/birthdayService.js';
@@ -123,7 +124,7 @@ class TitanBot extends Client {
       if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin || '*');
       }
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       
       if (req.method === 'OPTIONS') {
@@ -131,6 +132,8 @@ class TitanBot extends Client {
       }
       next();
     });
+
+    app.use(express.json({ limit: '64kb' }));
 
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
@@ -208,6 +211,229 @@ class TitanBot extends Client {
         version: pkg.version,
         timestamp: new Date().toISOString()
       });
+    });
+
+
+    const dashboardAuth = (req, res, next) => {
+      const expected = process.env.KREW_DASHBOARD_API_SECRET || '';
+      const authorization = String(req.headers.authorization || '');
+      const supplied = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+      let mismatch = expected.length ^ supplied.length;
+      const length = Math.max(expected.length, supplied.length);
+      for (let index = 0; index < length; index += 1) {
+        mismatch |= (expected.charCodeAt(index) || 0) ^ (supplied.charCodeAt(index) || 0);
+      }
+      if (!expected) {
+        return res.status(503).json({ error: 'Dashboard API secret is not configured.' });
+      }
+      if (mismatch !== 0) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+      next();
+    };
+
+    const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+    const validText = (value, maxLength) => typeof value === 'string' && value.length <= maxLength;
+    const validChannel = (guild, channelId) => {
+      if (channelId === null) return true;
+      if (typeof channelId !== 'string' || channelId.length > 32) return false;
+      const channel = guild.channels.cache.get(channelId);
+      return Boolean(channel && channel.isTextBased() && !channel.isThread());
+    };
+    const validEmbed = (embed) => {
+      if (!isPlainObject(embed)) return false;
+      if ('title' in embed && !validText(embed.title, 256)) return false;
+      if ('footer' in embed && !validText(embed.footer, 2048)) return false;
+      if ('color' in embed && (typeof embed.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(embed.color))) return false;
+      return true;
+    };
+    const serializeWelcomeConfig = (config) => ({
+      enabled: Boolean(config.enabled),
+      channelId: config.channelId ?? null,
+      welcomeMessage: config.welcomeMessage ?? 'Welcome {user} to {server}!',
+      welcomePing: Boolean(config.welcomePing),
+      welcomeImage: config.welcomeImage ?? null,
+      welcomeEmbed: {
+        title: config.welcomeEmbed?.title ?? '🎉 Welcome!',
+        footer: config.welcomeEmbed?.footer ?? 'Welcome to {server}!',
+        color: config.welcomeEmbed?.color ?? '#7665ef',
+      },
+      goodbyeEnabled: Boolean(config.goodbyeEnabled),
+      goodbyeChannelId: config.goodbyeChannelId ?? null,
+      leaveMessage: config.leaveMessage ?? '{user.tag} has left the server.',
+      goodbyePing: Boolean(config.goodbyePing),
+      goodbyeEmbed: {
+        title: config.leaveEmbed?.title ?? '👋 Goodbye',
+        footer: config.leaveEmbed?.footer ?? 'Goodbye from {server}!',
+        color: config.leaveEmbed?.color ?? '#ef6b83',
+      },
+      roleIds: Array.isArray(config.roleIds) ? config.roleIds : [],
+      autoRoleDelay: Number(config.autoRoleDelay) || 0,
+    });
+
+    app.get('/dashboard/guilds', dashboardAuth, (req, res) => {
+      const guilds = [...this.guilds.cache.values()].map((guild) => ({
+        id: guild.id,
+        name: guild.name,
+        icon: guild.icon,
+        memberCount: guild.memberCount || 0,
+      }));
+      return res.status(200).json({ guilds });
+    });
+
+    app.get('/dashboard/guilds/:guildId', dashboardAuth, async (req, res) => {
+      try {
+        const guild = this.guilds.cache.get(req.params.guildId);
+        if (!guild) return res.status(404).json({ error: 'Krew is not in this server.' });
+
+        const config = await getWelcomeConfig(this, guild.id);
+        const channels = [...guild.channels.cache.values()]
+          .filter((channel) => channel.isTextBased() && !channel.isThread() && [0, 5].includes(channel.type))
+          .map((channel) => ({ id: channel.id, name: channel.name, type: channel.type }));
+        const roles = [...guild.roles.cache.values()]
+          .filter((role) => !role.managed && role.id !== guild.id)
+          .sort((a, b) => b.position - a.position)
+          .map((role) => ({
+            id: role.id,
+            name: role.name,
+            color: role.color,
+            position: role.position,
+            managed: role.managed,
+          }));
+
+        return res.status(200).json({
+          guild: {
+            id: guild.id,
+            name: guild.name,
+            icon: guild.icon,
+            memberCount: guild.memberCount || 0,
+          },
+          channels,
+          roles,
+          welcomeConfig: serializeWelcomeConfig(config),
+        });
+      } catch (error) {
+        logger.error('Dashboard guild read failed:', error);
+        return res.status(500).json({ error: 'Could not load this server.' });
+      }
+    });
+
+    app.patch('/dashboard/guilds/:guildId/welcome', dashboardAuth, async (req, res) => {
+      try {
+        const guild = this.guilds.cache.get(req.params.guildId);
+        if (!guild) return res.status(404).json({ error: 'Krew is not in this server.' });
+        const body = req.body;
+        if (!isPlainObject(body)) return res.status(400).json({ error: 'Invalid settings payload.' });
+
+        const updates = {};
+        if ('enabled' in body) {
+          if (typeof body.enabled !== 'boolean') return res.status(400).json({ error: 'Invalid welcome toggle.' });
+          updates.enabled = body.enabled;
+        }
+        if ('channelId' in body) {
+          if (!validChannel(guild, body.channelId)) return res.status(400).json({ error: 'Choose a valid text channel.' });
+          updates.channelId = body.channelId;
+        }
+        if ('welcomeMessage' in body) {
+          if (!validText(body.welcomeMessage, 2000)) return res.status(400).json({ error: 'Welcome message must be 2,000 characters or fewer.' });
+          updates.welcomeMessage = body.welcomeMessage;
+        }
+        if ('welcomePing' in body) {
+          if (typeof body.welcomePing !== 'boolean') return res.status(400).json({ error: 'Invalid mention toggle.' });
+          updates.welcomePing = body.welcomePing;
+        }
+        if ('welcomeImage' in body) {
+          if (body.welcomeImage !== null) {
+            if (!validText(body.welcomeImage, 500)) return res.status(400).json({ error: 'Image URL is too long.' });
+            try {
+              if (new URL(body.welcomeImage).protocol !== 'https:') throw new Error('https required');
+            } catch {
+              return res.status(400).json({ error: 'Enter a valid HTTPS image URL.' });
+            }
+          }
+          updates.welcomeImage = body.welcomeImage;
+        }
+        if ('welcomeEmbed' in body) {
+          if (!validEmbed(body.welcomeEmbed)) return res.status(400).json({ error: 'Invalid welcome embed settings.' });
+          const current = await getWelcomeConfig(this, guild.id);
+          updates.welcomeEmbed = { ...current.welcomeEmbed, ...body.welcomeEmbed };
+        }
+
+        const updated = await updateWelcomeConfig(this, guild.id, updates);
+        return res.status(200).json({ ok: true, welcomeConfig: serializeWelcomeConfig(updated) });
+      } catch (error) {
+        logger.error('Dashboard welcome update failed:', error);
+        return res.status(500).json({ error: 'Could not save welcome settings.' });
+      }
+    });
+
+    app.patch('/dashboard/guilds/:guildId/goodbye', dashboardAuth, async (req, res) => {
+      try {
+        const guild = this.guilds.cache.get(req.params.guildId);
+        if (!guild) return res.status(404).json({ error: 'Krew is not in this server.' });
+        const body = req.body;
+        if (!isPlainObject(body)) return res.status(400).json({ error: 'Invalid settings payload.' });
+
+        const updates = {};
+        if ('goodbyeEnabled' in body) {
+          if (typeof body.goodbyeEnabled !== 'boolean') return res.status(400).json({ error: 'Invalid goodbye toggle.' });
+          updates.goodbyeEnabled = body.goodbyeEnabled;
+        }
+        if ('goodbyeChannelId' in body) {
+          if (!validChannel(guild, body.goodbyeChannelId)) return res.status(400).json({ error: 'Choose a valid text channel.' });
+          updates.goodbyeChannelId = body.goodbyeChannelId;
+        }
+        if ('leaveMessage' in body) {
+          if (!validText(body.leaveMessage, 2000)) return res.status(400).json({ error: 'Goodbye message must be 2,000 characters or fewer.' });
+          updates.leaveMessage = body.leaveMessage;
+        }
+        if ('goodbyePing' in body) {
+          if (typeof body.goodbyePing !== 'boolean') return res.status(400).json({ error: 'Invalid mention toggle.' });
+          updates.goodbyePing = body.goodbyePing;
+        }
+        if ('leaveEmbed' in body) {
+          if (!validEmbed(body.leaveEmbed)) return res.status(400).json({ error: 'Invalid goodbye embed settings.' });
+          const current = await getWelcomeConfig(this, guild.id);
+          updates.leaveEmbed = { ...current.leaveEmbed, ...body.leaveEmbed };
+        }
+
+        const updated = await updateWelcomeConfig(this, guild.id, updates);
+        return res.status(200).json({ ok: true, welcomeConfig: serializeWelcomeConfig(updated) });
+      } catch (error) {
+        logger.error('Dashboard goodbye update failed:', error);
+        return res.status(500).json({ error: 'Could not save goodbye settings.' });
+      }
+    });
+
+    app.patch('/dashboard/guilds/:guildId/autoroles', dashboardAuth, async (req, res) => {
+      try {
+        const guild = this.guilds.cache.get(req.params.guildId);
+        if (!guild) return res.status(404).json({ error: 'Krew is not in this server.' });
+        const body = req.body;
+        if (!isPlainObject(body) || !Array.isArray(body.roleIds) || body.roleIds.length > 10) {
+          return res.status(400).json({ error: 'Choose up to 10 valid roles.' });
+        }
+        if (body.roleIds.some((id) => typeof id !== 'string' || !guild.roles.cache.has(id))) {
+          return res.status(400).json({ error: 'One or more selected roles are not in this server.' });
+        }
+        const botMember = guild.members.me;
+        const botHighest = botMember?.roles.highest?.position ?? 0;
+        const selectedRoles = body.roleIds.map((id) => guild.roles.cache.get(id));
+        if (selectedRoles.some((role) => !role || role.managed || role.id === guild.id || role.position >= botHighest)) {
+          return res.status(400).json({ error: 'Krew cannot assign one or more selected roles. Move Krew’s role above them and try again.' });
+        }
+        if ('autoRoleDelay' in body && (!Number.isInteger(body.autoRoleDelay) || body.autoRoleDelay < 0 || body.autoRoleDelay > 3600)) {
+          return res.status(400).json({ error: 'Role delay must be between 0 and 3,600 seconds.' });
+        }
+
+        const updates = { roleIds: body.roleIds };
+        if ('autoRoleDelay' in body) updates.autoRoleDelay = body.autoRoleDelay;
+        const updated = await updateWelcomeConfig(this, guild.id, updates);
+        return res.status(200).json({ ok: true, welcomeConfig: serializeWelcomeConfig(updated) });
+      } catch (error) {
+        logger.error('Dashboard auto-role update failed:', error);
+        return res.status(500).json({ error: 'Could not save auto-role settings.' });
+      }
     });
 
     const startServer = (port, attempt = 0) => {
