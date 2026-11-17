@@ -1,32 +1,29 @@
 import dotenv from 'dotenv';
 
 dotenv.config();
-
-// Prevent connect() from applying the startup migration before a dry-run or
-// explicitly requested migration can execute.
 process.env.AUTO_MIGRATE = 'false';
 
-const { mongoDb } = await import('../src/utils/mongoDatabase.js');
+const { postgresDb } = await import('../src/utils/postgresDatabase.js');
 const dryRun = process.argv.includes('--dry-run');
 const force = process.argv.includes('--force');
 
 async function run() {
-    const connected = await mongoDb.connect();
+    const connected = await postgresDb.connect();
     if (!connected) {
-        const failure = mongoDb.getLastFailure?.();
-        throw new Error(failure?.message || 'Could not connect to MongoDB. Check MONGODB_URI.');
+        const failure = postgresDb.getLastFailure?.();
+        throw new Error(failure?.message || 'Could not connect to Neon. Check DATABASE_URL.');
     }
 
     try {
-        const result = await mongoDb.runKeyMigration({ dryRun, force });
+        const result = await postgresDb.runKeyMigration({ dryRun, force });
         console.log(JSON.stringify({ dryRun, force, ...result }, null, 2));
         if (result.errors > 0) process.exitCode = 1;
     } finally {
-        await mongoDb.disconnect();
+        await postgresDb.disconnect();
     }
 }
 
 run().catch(error => {
-    console.error('MongoDB key migration failed:', error.message);
+    console.error('PostgreSQL key migration failed:', error.message);
     process.exitCode = 1;
 });
