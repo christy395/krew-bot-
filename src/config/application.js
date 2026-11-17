@@ -31,11 +31,9 @@ const appConfig = {
     },
   },
 
-  // MongoDB connection settings. The runtime client reads these values
-  // directly from the same environment variables.
-  mongodb: {
-    uri: process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/titanbot",
-    databaseName: process.env.MONGODB_DB_NAME || "titanbot",
+  // Neon PostgreSQL connection settings.
+  postgresql: {
+    connectionString: process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || process.env.POSTGRES_URL || "",
   },
 
   logging: {
@@ -60,7 +58,9 @@ const appConfig = {
   },
 
   api: {
-    port: process.env.PORT || 3000,
+    // Bot-Hosting exposes the assigned application port as SERVER_PORT.
+    // Keep PORT as a fallback for local and other hosting environments.
+    port: Number(process.env.SERVER_PORT || process.env.PORT || 3000),
     cors: {
       origin: process.env.CORS_ORIGIN?.split(",") || "*",
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],

@@ -1,4 +1,4 @@
-import { mongoDb } from '../mongoDatabase.js';
+import { postgresDb } from '../postgresDatabase.js';
 import { MemoryStorage } from '../memoryStorage.js';
 import { logger } from '../logger.js';
 import { validateGuildConfigOrThrow } from '../schemas.js';
@@ -15,105 +15,76 @@ class DatabaseWrapper {
 
     async initialize() {
         if (this.initialized) return;
-
         try {
-            logger.info('Attempting to connect to MongoDB...');
-            const connected = await mongoDb.connect();
+            logger.info('Attempting to connect to Neon PostgreSQL...');
+            const connected = await postgresDb.connect();
             if (connected) {
-                this.db = mongoDb;
-                this.connectionType = 'mongodb';
+                this.db = postgresDb;
+                this.connectionType = 'postgresql';
                 this.degradedReason = null;
-                logger.info('MongoDB initialized - persistent storage is enabled');
+                logger.info('Neon PostgreSQL initialized - persistent storage is enabled');
                 this.initialized = true;
                 return;
             }
-
-            const failure = mongoDb.getLastFailure?.();
+            const failure = postgresDb.getLastFailure?.();
             if (failure?.reason === 'SCHEMA_VERSION_MISMATCH') {
-                const error = new Error(
-                    `MongoDB schema version mismatch (${failure.message}). Run the migration check before startup.`,
-                );
+                const error = new Error(`PostgreSQL schema version mismatch (${failure.message}). Run the migration check before startup.`);
                 error.code = 'SCHEMA_VERSION_MISMATCH';
                 throw error;
             }
+            logger.warn('Neon PostgreSQL connection failed:', failure?.message || 'Unknown connection error');
         } catch (error) {
-            logger.warn('MongoDB connection failed:', error.message);
+            logger.warn('Neon PostgreSQL connection failed:', error.message);
             if (error.code === 'SCHEMA_VERSION_MISMATCH') throw error;
         }
-
         this.db = new MemoryStorage();
         this.useFallback = true;
         this.connectionType = 'memory';
-        this.degradedReason = 'MONGODB_UNAVAILABLE';
+        this.degradedReason = 'POSTGRESQL_UNAVAILABLE';
         logger.warn('DATABASE DEGRADED MODE - using in-memory storage; data will be lost on restart');
-        logger.warn('Check MONGODB_URI and MongoDB network access, then restart the bot');
+        logger.warn('Check DATABASE_URL and Neon network access, then restart the bot');
         this.initialized = true;
         this.degradedModeWarningShown = true;
     }
 
     async set(key, value, ttl = null) {
         if (this.useFallback) logger.debug(`[DEGRADED] Writing to memory: ${key}`);
-
         if (typeof key === 'string' && /^guild:[^:]+:config$/.test(key)) {
             const guildId = key.split(':')[1];
             validateGuildConfigOrThrow(value, { guildId, errorCode: 'VALIDATION_FAILED' });
         }
-
         return this.db.set(key, value, ttl);
     }
-
-    async get(key, defaultValue = null) {
-        return this.db.get(key, defaultValue);
-    }
-
+    async get(key, defaultValue = null) { return this.db.get(key, defaultValue); }
     async delete(key) {
         if (this.useFallback) logger.debug(`[DEGRADED] Deleting from memory: ${key}`);
         return this.db.delete(key);
     }
-
-    async list(prefix) {
-        return this.db.list(prefix);
-    }
-
+    async list(prefix) { return this.db.list(prefix); }
     async exists(key) {
         if (this.db.exists) return this.db.exists(key);
-        const value = await this.db.get(key);
-        return value !== null;
+        return (await this.db.get(key)) !== null;
     }
-
     async increment(key, amount = 1) {
         if (this.useFallback) logger.debug(`[DEGRADED] Incrementing in memory: ${key}`);
         if (this.db.increment) return this.db.increment(key, amount);
-        const current = await this.db.get(key, 0);
-        const next = current + amount;
+        const next = (await this.db.get(key, 0)) + amount;
         await this.db.set(key, next);
         return next;
     }
-
     async decrement(key, amount = 1) {
         if (this.useFallback) logger.debug(`[DEGRADED] Decrementing in memory: ${key}`);
         if (this.db.decrement) return this.db.decrement(key, amount);
-        const current = await this.db.get(key, 0);
-        const next = current - amount;
+        const next = (await this.db.get(key, 0)) - amount;
         await this.db.set(key, next);
         return next;
     }
-
     async disconnect() {
-        if (this.db && typeof this.db.disconnect === 'function') {
-            await this.db.disconnect();
-        }
+        if (this.db && typeof this.db.disconnect === 'function') await this.db.disconnect();
         this.initialized = false;
     }
-
-    isDegraded() {
-        return this.useFallback;
-    }
-
-    isAvailable() {
-        return Boolean(this.db && !this.useFallback);
-    }
-
+    isDegraded() { return this.useFallback; }
+    isAvailable() { return Boolean(this.db && !this.useFallback); }
     getStatus() {
         return {
             initialized: this.initialized,
@@ -123,17 +94,14 @@ class DatabaseWrapper {
             degradedReason: this.degradedReason,
         };
     }
-
-    getConnectionType() {
-        return this.connectionType;
-    }
+    getConnectionType() { return this.connectionType; }
 }
 
 export const db = new DatabaseWrapper();
 
 export async function initializeDatabase() {
     try {
-        logger.info('Initializing Database (MongoDB > Memory fallback)...');
+        logger.info('Initializing Database (Neon PostgreSQL > Memory fallback)...');
         await db.initialize();
         logger.info('Database initialized');
         return { db };
@@ -143,33 +111,20 @@ export async function initializeDatabase() {
         return { db };
     }
 }
-
 export async function getFromDb(key, defaultValue = null) {
     try {
-        const value = await db.get(key);
+        const value = await db.get(key, defaultValue);
         return value === null ? defaultValue : value;
     } catch (error) {
         logger.error(`Error getting value for key ${key}:`, error);
         return defaultValue;
     }
 }
-
 export async function setInDb(key, value, ttl = null) {
-    try {
-        await db.set(key, value, ttl);
-        return true;
-    } catch (error) {
-        logger.error(`Error setting value for key ${key}:`, error);
-        return false;
-    }
+    try { await db.set(key, value, ttl); return true; }
+    catch (error) { logger.error(`Error setting value for key ${key}:`, error); return false; }
 }
-
 export async function deleteFromDb(key) {
-    try {
-        await db.delete(key);
-        return true;
-    } catch (error) {
-        logger.error(`Error deleting key ${key}:`, error);
-        return false;
-    }
+    try { await db.delete(key); return true; }
+    catch (error) { logger.error(`Error deleting key ${key}:`, error); return false; }
 }

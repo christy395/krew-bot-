@@ -78,25 +78,28 @@ export default {
             }
         }
         
-        if (welcomeConfig?.roleIds && welcomeConfig.roleIds.length > 0) {
-            const delay = welcomeConfig.autoRoleDelay || 0;
-            const singleRoleId = welcomeConfig.roleIds[0];
-            
-            if (delay > 0) {
-                const timeout = setTimeout(async () => {
-                    const role = guild.roles.cache.get(singleRoleId);
+        if (Array.isArray(welcomeConfig?.roleIds) && welcomeConfig.roleIds.length > 0) {
+            const delay = Math.max(0, Number(welcomeConfig.autoRoleDelay) || 0);
+            const assignConfiguredRoles = async () => {
+                for (const roleId of welcomeConfig.roleIds) {
+                    const role = guild.roles.cache.get(roleId);
                     if (role) {
                         await assignRoleSafely(member, role);
                     }
+                }
+            };
+
+            if (delay > 0) {
+                const timeout = setTimeout(() => {
+                    assignConfiguredRoles().catch((error) => {
+                        logger.warn(`Failed to assign configured auto roles for member ${member.id}:`, error);
+                    });
                 }, delay * 1000);
                 if (typeof timeout.unref === 'function') {
                     timeout.unref();
                 }
             } else {
-                const role = guild.roles.cache.get(singleRoleId);
-                if (role) {
-                    await assignRoleSafely(member, role);
-                }
+                await assignConfiguredRoles();
             }
         }
         

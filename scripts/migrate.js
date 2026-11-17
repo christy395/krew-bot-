@@ -1,45 +1,41 @@
 import dotenv from 'dotenv';
 
 dotenv.config();
-
-// Keep status/check/apply commands from silently migrating legacy keys.
-// Use `npm run migrate:keys` (or its dry-run variant) for that operation.
 process.env.AUTO_MIGRATE = 'false';
 
-const { mongoDb } = await import('../src/utils/mongoDatabase.js');
-
+const { postgresDb } = await import('../src/utils/postgresDatabase.js');
 const command = process.argv[2] || 'status';
 
 async function run() {
-    const connected = await mongoDb.connect();
+    const connected = await postgresDb.connect();
     if (!connected) {
-        const failure = mongoDb.getLastFailure?.();
-        throw new Error(failure?.message || 'Could not connect to MongoDB. Check MONGODB_URI.');
+        const failure = postgresDb.getLastFailure?.();
+        throw new Error(failure?.message || 'Could not connect to Neon. Check DATABASE_URL.');
     }
 
     try {
-        const schema = await mongoDb.getSchemaStatus();
+        const schema = await postgresDb.getSchemaStatus();
         if (command === 'check') {
-            if (!schema) throw new Error('MongoDB schema version record is missing. Run npm run migrate.');
-            console.log(`MongoDB schema OK: version ${schema.version} (${schema.label})`);
+            if (!schema) throw new Error('PostgreSQL schema version record is missing. Run npm run migrate.');
+            console.log(`PostgreSQL schema OK: version ${schema.version} (${schema.label})`);
         } else if (command === 'status') {
             console.log(JSON.stringify({
-                database: mongoDb.databaseName,
-                connected: mongoDb.isAvailable(),
+                database: schema ? 'connected' : postgresDb.databaseName,
+                connected: postgresDb.isAvailable(),
                 schema,
             }, null, 2));
         } else if (command === 'apply') {
-            console.log(`MongoDB indexes and schema ledger are ready for ${mongoDb.databaseName}.`);
+            console.log('Neon PostgreSQL tables and schema ledger are ready.');
             console.log(JSON.stringify(schema, null, 2));
         } else {
             throw new Error(`Unknown migration command "${command}". Use apply, check, or status.`);
         }
     } finally {
-        await mongoDb.disconnect();
+        await postgresDb.disconnect();
     }
 }
 
 run().catch(error => {
-    console.error('MongoDB migration command failed:', error.message);
+    console.error('PostgreSQL migration command failed:', error.message);
     process.exitCode = 1;
 });
