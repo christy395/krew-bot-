@@ -1,4 +1,4 @@
-name: MongoDB Migration Check
+name: PostgreSQL Migration Check
 
 on:
   pull_request:
@@ -6,31 +6,32 @@ on:
     branches:
       - main
       - master
-      - mitchwork
+      - dashboard-api
       - remove-gambling-migrate-mongodb
 
 jobs:
   migration-check:
     runs-on: ubuntu-latest
     services:
-      mongo:
-        image: mongo:8.0
+      postgres:
+        image: postgres:16
         env:
-          MONGO_INITDB_ROOT_USERNAME: titanbot
-          MONGO_INITDB_ROOT_PASSWORD: titanbot
+          POSTGRES_USER: krew
+          POSTGRES_PASSWORD: krew_test_password
+          POSTGRES_DB: krew_test
         ports:
-          - 27017:27017
+          - 5432:5432
         options: >-
-          --health-cmd "mongosh --quiet --username titanbot --password titanbot --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 }).ok' | grep 1"
+          --health-cmd "pg_isready -U krew -d krew_test"
           --health-interval 10s
-          --health-timeout 10s
+          --health-timeout 5s
           --health-retries 10
 
     env:
-      MONGODB_URI: mongodb://titanbot:titanbot@localhost:27017/titanbot?authSource=admin
-      MONGODB_DB_NAME: titanbot
+      DATABASE_URL: postgres://krew:krew_test_password@localhost:5432/krew_test
       SCHEMA_VERSION: "1"
       SCHEMA_VERSION_LABEL: "baseline-v1"
+      AUTO_MIGRATE: "false"
 
     steps:
       - name: Checkout
@@ -38,14 +39,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Install dependencies
         run: npm install
       - name: Check JavaScript syntax
         run: npm run check:syntax
-      - name: Apply MongoDB indexes and schema ledger
+      - name: Apply PostgreSQL tables and schema ledger
         run: npm run migrate
-      - name: Validate MongoDB schema version
+      - name: Validate PostgreSQL schema version
         run: npm run migrate:check
       - name: Preview legacy key migration
         run: npm run migrate:keys:dry
