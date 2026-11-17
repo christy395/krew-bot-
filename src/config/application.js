@@ -60,7 +60,9 @@ const appConfig = {
   },
 
   api: {
-    port: process.env.PORT || 3000,
+    // Bot-Hosting exposes the assigned application port as SERVER_PORT.
+    // Keep PORT as a fallback for local and other hosting environments.
+    port: Number(process.env.SERVER_PORT || process.env.PORT || 3000),
     cors: {
       origin: process.env.CORS_ORIGIN?.split(",") || "*",
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
