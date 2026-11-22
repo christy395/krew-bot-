@@ -31,7 +31,7 @@ class DatabaseWrapper {
             const failure = mongoDb.getLastFailure?.();
             if (['SCHEMA_VERSION_MISMATCH', 'SCHEMA_VERSION_MISSING'].includes(failure?.reason)) {
                 const error = new Error(
-                    `MongoDB schema version mismatch (${failure.message}). Run the migration check before startup.`,
+                    `MongoDB schema validation failed (${failure.message}). Run npm run migrate before startup, then npm run migrate:check.`,
                 );
                 error.code = failure.reason;
                 throw error;
