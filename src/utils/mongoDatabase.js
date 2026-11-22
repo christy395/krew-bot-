@@ -83,13 +83,19 @@ class MongoDatabase {
                 this.collection = collection;
 
                 const schema = await migrations.findOne({ _id: 'schema_version' });
-                if (!schema) {
+                if (!schema && process.env.MONGODB_ALLOW_SCHEMA_INIT === 'true') {
                     await migrations.insertOne({
                         _id: 'schema_version',
                         version: EXPECTED_SCHEMA_VERSION,
                         label: EXPECTED_SCHEMA_LABEL,
                         appliedAt: new Date(),
                     });
+                } else if (!schema) {
+                    const error = new Error(
+                        'MongoDB schema version record is missing. Run npm run migrate before starting the bot.',
+                    );
+                    error.code = 'SCHEMA_VERSION_MISSING';
+                    throw error;
                 } else if (Number(schema.version) !== EXPECTED_SCHEMA_VERSION) {
                     const error = new Error(
                         `MongoDB schema version mismatch: expected ${EXPECTED_SCHEMA_VERSION}, found ${schema.version}`,
@@ -127,7 +133,7 @@ class MongoDatabase {
                 this.collection = null;
                 this.isConnected = false;
 
-                if (error.code === 'SCHEMA_VERSION_MISMATCH' || attempt >= config.retries + 1) {
+                if (['SCHEMA_VERSION_MISMATCH', 'SCHEMA_VERSION_MISSING'].includes(error.code) || attempt >= config.retries + 1) {
                     logger.error('Failed to initialize MongoDB:', error.message);
                     return false;
                 }
@@ -338,8 +344,13 @@ class MongoDatabase {
             try {
                 const existing = await this.collection.findOne({ _id: canonicalKey });
                 if (existing) {
+                    // Preserve both documents when a canonical key already exists.
+                    // Automatically deleting the legacy document here can discard data
+                    // that has not yet been merged or manually reconciled.
                     summary.skipped += 1;
-                    if (!dryRun) await this.collection.deleteOne({ _id: legacyKey });
+                    migrationLogger.warn(
+                        `Preserving legacy key ${legacyKey}: canonical key ${canonicalKey} already exists; manual merge required.`,
+                    );
                     continue;
                 }
 
