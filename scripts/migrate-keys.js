@@ -5,6 +5,7 @@ dotenv.config();
 // Prevent connect() from applying the startup migration before a dry-run or
 // explicitly requested migration can execute.
 process.env.AUTO_MIGRATE = 'false';
+process.env.MONGODB_ALLOW_SCHEMA_INIT = 'false';
 
 const { mongoDb } = await import('../src/utils/mongoDatabase.js');
 const dryRun = process.argv.includes('--dry-run');
