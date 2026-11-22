@@ -29,16 +29,16 @@ class DatabaseWrapper {
             }
 
             const failure = mongoDb.getLastFailure?.();
-            if (failure?.reason === 'SCHEMA_VERSION_MISMATCH') {
+            if (['SCHEMA_VERSION_MISMATCH', 'SCHEMA_VERSION_MISSING'].includes(failure?.reason)) {
                 const error = new Error(
                     `MongoDB schema version mismatch (${failure.message}). Run the migration check before startup.`,
                 );
-                error.code = 'SCHEMA_VERSION_MISMATCH';
+                error.code = failure.reason;
                 throw error;
             }
         } catch (error) {
             logger.warn('MongoDB connection failed:', error.message);
-            if (error.code === 'SCHEMA_VERSION_MISMATCH') throw error;
+            if (['SCHEMA_VERSION_MISMATCH', 'SCHEMA_VERSION_MISSING'].includes(error.code)) throw error;
         }
 
         this.db = new MemoryStorage();
@@ -139,7 +139,7 @@ export async function initializeDatabase() {
         return { db };
     } catch (error) {
         logger.error('Database initialization error:', error);
-        if (error.code === 'SCHEMA_VERSION_MISMATCH') throw error;
+        if (['SCHEMA_VERSION_MISMATCH', 'SCHEMA_VERSION_MISSING'].includes(error.code)) throw error;
         return { db };
     }
 }
