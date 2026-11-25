@@ -1,0 +1,66 @@
+name: Export all Krew bot branches
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository and branch history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Export every branch snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Krew-bot-all-branches/branches
+          : > Krew-bot-all-branches/BRANCHES.txt
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+
+          while IFS= read -r ref; do
+            branch="${ref#origin/}"
+            [ "$branch" = "HEAD" ] && continue
+            [ "$branch" = "export-all-branches-archive" ] && continue
+            safe_name="$(printf '%s' "$branch" | tr '/ ' '--')"
+            destination="Krew-bot-all-branches/branches/$safe_name"
+            mkdir -p "$destination"
+            commit="$(git rev-parse "$ref")"
+            printf '%s %s\n' "$branch" "$commit" | tee -a Krew-bot-all-branches/BRANCHES.txt
+            git archive --format=tar "$ref" -- . \
+              ':(exclude).env*' ':(exclude)**/.env*' \
+              ':(exclude)**/*.pem' ':(exclude)**/*.key' \
+              ':(exclude)**/*.p12' ':(exclude)**/*.pfx' \
+              ':(exclude)**/id_rsa' | tar -xf - -C "$destination"
+            find "$destination" -type f \( \
+              -name '.env' -o -name '.env.*' -o -name '*.pem' -o \
+              -name '*.key' -o -name '*.p12' -o -name '*.pfx' -o \
+              -name 'id_rsa' \
+            \) -delete
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v '/HEAD$')
+
+          cat > Krew-bot-all-branches/README.txt <<'EOF'
+          Krew bot source export
+          Each folder under branches/ is a source snapshot from one Git branch.
+          BRANCHES.txt lists branch names and exact commit IDs.
+          Environment files and common private-key file patterns were excluded.
+          This is a source snapshot export, not a Git history bundle.
+          EOF
+
+      - name: Create ZIP
+        run: zip -qr Krew-bot-all-branches.zip Krew-bot-all-branches
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Krew-bot-all-branches
+          path: Krew-bot-all-branches.zip
+          if-no-files-found: error
+          retention-days: 7
